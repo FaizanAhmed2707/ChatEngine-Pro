@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ChatEngine Pro</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.1/stomp.min.js"></script>
+
+    <style>
+        body { background-color: #f0f2f5; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+
+        #chat-container { height: 400px; overflow-y: auto; display: flex; flex-direction: column; padding: 20px; background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .msg-row { display: flex; align-items: flex-end; margin-bottom: 15px; }
+        .msg-row.me { flex-direction: row-reverse; }
+        .avatar-img { width: 35px; height: 35px; border-radius: 50%; object-fit: cover; margin: 0 10px; background: #e4e6eb; }
+        .message-wrapper { max-width: 70%; display: flex; flex-direction: column; }
+        .msg-row.me .message-wrapper { align-items: flex-end; }
+        .bubble { padding: 10px 15px; border-radius: 18px; font-size: 15px; word-wrap: break-word; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        .msg-row.other .bubble { background-color: #e4e6eb; color: black; border-bottom-left-radius: 2px; }
+        .msg-row.me .bubble { border-bottom-right-radius: 2px; color: white; }
+        .meta { font-size: 11px; color: #65676b; margin-bottom: 4px; }
+        .system-msg { align-self: center; background: #f0f2f5; padding: 4px 12px; border-radius: 10px; font-size: 12px; color: #65676b; margin: 10px 0; font-weight: bold; }
+
+        #active-users-container { height: 500px; overflow-y: auto; background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); padding: 15px; }
+        .user-badge { display: flex; align-items: center; justify-content: space-between; padding: 8px; border-bottom: 1px solid #eee; font-weight: 500; }
+
+        /* WebRTC Video UI */
+        #video-container { display: none; background: #000; border-radius: 10px; padding: 10px; margin-bottom: 15px; position: relative; height: 300px; overflow: hidden;}
+        #remoteVideo { width: 100%; height: 100%; background: #222; border-radius: 8px; object-fit: cover; }
+        #localVideo { width: 100px; height: 75px; position: absolute; bottom: 20px; right: 20px; border: 2px solid white; border-radius: 8px; background: #333; object-fit: cover; z-index: 5;}
+
+        #incomingCallOverlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 2000; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
+        #callingOverlay { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 10; align-items: center; justify-content: center; color: white; border-radius: 8px;}
+    </style>
+</head>
+<body>
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="text-primary fw-bold mb-0">ChatEngine Pro</h2>
+        <div>
+            <span id="welcomeText" class="fw-bold me-3 text-muted"></span>
+            <button id="settingsBtn" class="btn btn-outline-secondary" style="display: none;" onclick="openSettingsModal()">⚙️ Profile</button>
+            <a href="/logout" class="btn btn-outline-danger ms-2">Logout</a>
+        </div>
+    </div>
+
+    <div id="loading-section" class="text-center py-5">
+        <div class="spinner-border text-primary" role="status"></div>
+        <h4 class="mt-3">Authenticating with Google...</h4>
+    </div>
+
+    <div class="row" id="chat-section" style="display: none;">
+        <div class="col-md-8 mb-3">
+
+            <div id="video-container" class="shadow-sm">
+                <video id="remoteVideo" autoplay playsinline></video>
+                <video id="localVideo" autoplay playsinline muted></video>
+                <div id="callingOverlay">
+                    <div class="text-center">
+                        <div class="spinner-grow text-light mb-2" role="status"></div>
+                        <h5 id="callingText">Ringing...</h5>
+                        <button class="btn btn-danger btn-sm mt-3 rounded-pill px-4" onclick="endCall(true)">Cancel</button>
+                    </div>
+                </div>
+                <div class="position-absolute bottom-0 start-50 translate-middle-x mb-3" style="z-index: 15;" id="activeCallControls">
+                    <button class="btn btn-danger rounded-pill px-4 shadow" onclick="endCall(true)">End Call</button>
+                </div>
+            </div>
+
+            <div id="chat-container" class="mb-2"></div>
+            <div id="typing-indicator" style="display: none; font-size: 12px; color: #65676b; font-style: italic; margin-bottom: 5px; padding-left: 5px;">Someone is typing...</div>
+
+            <div class="input-group shadow-sm">
+                <input type="file" id="fileInput" style="display: none;" accept="image/*" onchange="uploadImage(event)">
+                <button class="btn btn-outline-secondary" onclick="document.getElementById('fileInput').click()" title="Attach Image">📎</button>
+
+                <input id="messageInput" type="text" class="form-control" placeholder="Write a message...">
+                <button class="btn btn-primary px-4" onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div id="active-users-container">
+                <h5 class="border-bottom pb-2 mb-3">Online Now</h5>
+                <div id="user-list"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="incomingCallOverlay">
+    <div class="bg-white p-4 rounded-4 shadow-lg text-center" style="min-width: 300px;">
+        <div class="mb-3">
+            <img id="incomingCallerAvatar" src="" class="rounded-circle mb-2" width="60" height="60" style="background: #eee;">
+            <h4 id="callerNameDisplay" class="fw-bold mb-0">Someone</h4>
+            <small class="text-muted">is calling you for video...</small>
+        </div>
+        <div class="d-flex justify-content-center gap-3">
+            <button class="btn btn-danger rounded-pill px-4" onclick="rejectIncomingCall()">Decline</button>
+            <button class="btn btn-success rounded-pill px-4" onclick="acceptIncomingCall()">Accept</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="profileModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Profile</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3 text-center">
+                    <img id="modalAvatarPreview" src="" class="avatar-img shadow-sm" style="width: 80px; height: 80px;">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Avatar URL</label>
+                    <input type="text" id="avatarInput" class="form-control" placeholder="Paste an image link here...">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Theme Color</label>
+                    <input type="color" id="colorInput" class="form-control form-control-color w-100">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" onclick="saveProfile()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- STATE VARIABLES ---
+    let stompClient = null;
+    let currentUsername = null;
+    let activeUsers = new Set();
+    const userProfiles = {};
+    const profileRequests = {};
+    let typingTimeout = null;
+    let isTyping = false;
+    let typingThrottleTimer = null;
+
+    // --- WEBRTC STATE MACHINE ---
+    let localStream = null;
+    let peerConnection = null;
+    let currentCallTarget = null;
+    let callState = 'IDLE';
+    let pendingOfferData = null;
+
+    const rtcConfig = { 'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}] };
+
+    // --- INITIALIZATION (OAuth2 Enabled) ---
+    async function connect() {
+        try {
+            const authResponse = await fetch('/api/users/me');
+            if (!authResponse.ok) throw new Error("Not authenticated");
+            const authData = await authResponse.json();
+
+            currentUsername = authData.username;
+            document.getElementById('welcomeText').innerText = `Welcome, ${currentUsername}`;
+
+            const socket = new SockJS('/chat-websocket');
+            stompClient = Stomp.over(socket);
+            stompClient.debug = null;
+
+            stompClient.connect({}, async function () {
+                document.getElementById('loading-section').style.display = 'none';
+                document.getElementById('chat-section').style.display = 'flex';
+                document.getElementById('settingsBtn').style.display = 'inline-block';
+
+                setTimeout(async () => {
+                    await fetchProfile(currentUsername);
+                    updateRoster(currentUsername, 'JOIN');
+                    await loadHistory();
+                }, 500);
+
+                stompClient.subscribe('/topic/messages', function (payload) {
+                    handleIncomingMessage(JSON.parse(payload.body));
+                });
+
+                stompClient.subscribe('/topic/video/' + currentUsername, function (payload) {
+                    handleVideoSignal(JSON.parse(payload.body));
+                });
+
+                stompClient.send("/app/addUser", {}, JSON.stringify({sender: currentUsername, type: 'JOIN'}));
+            });
+        } catch (error) {
+            console.error("Auth failed. Redirecting to login...", error);
+            // If the user isn't authenticated via Google, send them to the root login trigger
+            window.location.href = '/oauth2/authorization/google';
+        }
+    }
+
+    // Auto-connect on page load
+    window.onload = connect;
+
+    // --- WEBRTC LOGIC & UX ---
+
+    async function initMedia() {
+        try {
+            if (localStream) localStream.getTracks().forEach(track => track.stop());
+            localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            document.getElementById('localVideo').srcObject = localStream;
+            document.getElementById('video-container').style.display = 'block';
+            return true;
+        } catch (err) {
+            alert("Could not access camera/microphone. Please check permissions.");
+            return false;
+        }
+    }
+
+    function createPeerConnection() {
+        if (peerConnection) peerConnection.close();
+        peerConnection = new RTCPeerConnection(rtcConfig);
+        localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+        peerConnection.ontrack = event => {
+            document.getElementById('remoteVideo').srcObject = event.streams[0];
+            document.getElementById('callingOverlay').style.display = 'none';
+        };
+
+        peerConnection.onicecandidate = event => {
+            if (event.candidate) sendVideoSignal("ICE", JSON.stringify(event.candidate), currentCallTarget);
+        };
+
+        peerConnection.oniceconnectionstatechange = () => {
+            if (peerConnection && (peerConnection.iceConnectionState === 'disconnected' || peerConnection.iceConnectionState === 'failed')) {
+                endCall(false);
+                renderSystemAlert({sender: 'System', type: 'LEAVE', textOverride: 'Call connection lost.'});
+            }
+        };
+    }
+
+    function sendVideoSignal(type, data, target) {
+        stompClient.send("/app/video/signal", {}, JSON.stringify({ type: type, sender: currentUsername, target: target, data: data }));
+    }
+
+    async function startCall(targetUser) {
+        if (callState !== 'IDLE') return alert("You are already in a call or ringing someone!");
+
+        callState = 'RINGING';
+        currentCallTarget = targetUser;
+        updateRosterButtons();
+
+        const mediaReady = await initMedia();
+        if (!mediaReady) return endCall(false);
+
+        document.getElementById('callingText').innerText = `Calling ${targetUser}...`;
+        document.getElementById('callingOverlay').style.display = 'flex';
+
+        createPeerConnection();
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        sendVideoSignal("OFFER", JSON.stringify(offer), targetUser);
+    }
+
+    async function handleVideoSignal(signal) {
+        if (signal.type === "OFFER") {
+            if (callState !== 'IDLE') return sendVideoSignal("BUSY", null, signal.sender);
+
+            callState = 'RINGING';
+            currentCallTarget = signal.sender;
+            pendingOfferData = signal.data;
+            updateRosterButtons();
+
+            const profile = await fetchProfile(signal.sender);
+            document.getElementById('incomingCallerAvatar').src = profile.avatarUrl;
+            document.getElementById('callerNameDisplay').innerText = signal.sender;
+            document.getElementById('incomingCallOverlay').style.display = 'flex';
+        }
+        else if (signal.type === "ANSWER") {
+            if (peerConnection) {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(JSON.parse(signal.data)));
+                callState = 'IN_CALL';
+            }
+        }
+        else if (signal.type === "ICE") {
+            if (peerConnection && peerConnection.remoteDescription) {
+                await peerConnection.addIceCandidate(new RTCIceCandidate(JSON.parse(signal.data)));
+            }
+        }
+        else if (signal.type === "BUSY") {
+            alert(`${signal.sender} is currently on another call.`);
+            endCall(false);
+        }
+        else if (signal.type === "REJECT") {
+            renderSystemAlert({sender: 'System', type: 'LEAVE', textOverride: `${signal.sender} declined the call.`});
+            endCall(false);
+        }
+        else if (signal.type === "HANGUP" || signal.type === "CANCEL") {
+            document.getElementById('incomingCallOverlay').style.display = 'none';
+            if (callState !== 'IDLE') {
+                renderSystemAlert({sender: 'System', type: 'LEAVE', textOverride: 'Call ended.'});
+                endCall(false);
+            }
+        }
+    }
+
+    async function acceptIncomingCall() {
+        document.getElementById('incomingCallOverlay').style.display = 'none';
+        const mediaReady = await initMedia();
+        if (!mediaReady) return rejectIncomingCall();
+
+        createPeerConnection();
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(JSON.parse(pendingOfferData)));
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        sendVideoSignal("ANSWER", JSON.stringify(answer), currentCallTarget);
+        callState = 'IN_CALL';
+    }
+
+    function rejectIncomingCall() {
+        document.getElementById('incomingCallOverlay').style.display = 'none';
+        sendVideoSignal("REJECT", null, currentCallTarget);
+        endCall(false);
+    }
+
+    function endCall(notifyOther = true) {
+        if (notifyOther && currentCallTarget) {
+            const signalType = callState === 'RINGING' ? "CANCEL" : "HANGUP";
+            sendVideoSignal(signalType, null, currentCallTarget);
+        }
+        if (peerConnection) { peerConnection.close(); peerConnection = null; }
+        if (localStream) { localStream.getTracks().forEach(track => track.stop()); localStream = null; }
+
+        document.getElementById('video-container').style.display = 'none';
+        document.getElementById('callingOverlay').style.display = 'none';
+        document.getElementById('incomingCallOverlay').style.display = 'none';
+        document.getElementById('remoteVideo').srcObject = null;
+        document.getElementById('localVideo').srcObject = null;
+
+        callState = 'IDLE';
+        currentCallTarget = null;
+        pendingOfferData = null;
+        updateRosterButtons();
+    }
+
+    // --- RICH MEDIA UPLOAD (Cloudinary) ---
+    async function uploadImage(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const messageInput = document.getElementById('messageInput');
+        messageInput.placeholder = "Uploading image to cloud...";
+        messageInput.disabled = true;
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+            const response = await fetch('/api/upload', { method: 'POST', body: formData });
+            if (!response.ok) throw new Error("Upload failed");
+
+            const data = await response.json();
+
+            stompClient.send("/app/sendMessage", {}, JSON.stringify({
+                sender: currentUsername, content: data.url, type: 'CHAT'
+            }));
+        } catch (error) {
+            console.error(error);
+            alert("Failed to upload image. File might be too large.");
+        } finally {
+            messageInput.placeholder = "Write a message...";
+            messageInput.disabled = false;
+            event.target.value = '';
+        }
+    }
+
+    // --- STANDARD CHAT AND UI ---
+
+    function updateRoster(user, action) {
+        if (action === 'JOIN') activeUsers.add(user);
+        if (action === 'LEAVE') {
+            activeUsers.delete(user);
+            if (currentCallTarget === user) endCall(false);
+        }
+        updateRosterButtons();
+    }
+
+    function updateRosterButtons() {
+        const rosterDiv = document.getElementById('user-list');
+        rosterDiv.innerHTML = '';
+
+        activeUsers.forEach(activeUser => {
+            const isMe = activeUser === currentUsername;
+            const profile = userProfiles[activeUser] || { avatarUrl: `https://api.dicebear.com/7.x/pixel-art/svg?seed=${activeUser}` };
+
+            const el = document.createElement('div');
+            el.className = 'user-badge';
+
+            let html = `<div><span class="status-dot"></span><img src="${profile.avatarUrl}" width="25" height="25" class="rounded-circle mx-2" style="background:#ddd;">${activeUser} ${isMe ? '(You)' : ''}</div>`;
+
+            if (!isMe) {
+                const btnState = callState === 'IDLE' ? '' : 'disabled';
+                const btnStyle = callState === 'IDLE' ? 'btn-success' : 'btn-secondary';
+                html += `<button class="btn btn-sm ${btnStyle} rounded-pill px-3" onclick="startCall('${activeUser}')" ${btnState}>🎥 Call</button>`;
+            }
+
+            el.innerHTML = html;
+            rosterDiv.appendChild(el);
+        });
+    }
+
+    async function fetchProfile(username) {
+        if (userProfiles[username]) return userProfiles[username];
+        if (profileRequests[username]) return await profileRequests[username];
+        profileRequests[username] = fetch(`/api/users/${username}`).then(res => {
+            if (!res.ok) throw new Error("Not found"); return res.json();
+        }).catch(() => { return { username: username, avatarUrl: `https://api.dicebear.com/7.x/pixel-art/svg?seed=${username}`, themeColor: '#0084ff' }; });
+        const profile = await profileRequests[username];
+        userProfiles[username] = profile;
+        return profile;
+    }
+
+    function openSettingsModal() {
+        const profile = userProfiles[currentUsername];
+        document.getElementById('avatarInput').value = profile.avatarUrl;
+        document.getElementById('colorInput').value = profile.themeColor;
+        document.getElementById('modalAvatarPreview').src = profile.avatarUrl;
+        document.getElementById('modalAvatarPreview').style.border = `3px solid ${profile.themeColor}`;
+        new bootstrap.Modal(document.getElementById('profileModal')).show();
+    }
+
+    async function saveProfile() {
+        const newAvatar = document.getElementById('avatarInput').value.trim();
+        const newColor = document.getElementById('colorInput').value;
+        const updatedProfile = { avatarUrl: newAvatar, themeColor: newColor };
+
+        await fetch(`/api/users/${currentUsername}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updatedProfile)
+        });
+        userProfiles[currentUsername].avatarUrl = newAvatar;
+        userProfiles[currentUsername].themeColor = newColor;
+        bootstrap.Modal.getInstance(document.getElementById('profileModal')).hide();
+        document.getElementById('chat-container').innerHTML = '';
+        await loadHistory();
+    }
+
+    async function loadHistory() {
+        const res = await fetch('/api/chat/history');
+        const messages = await res.json();
+        for (const msg of messages) { if (msg.type === 'CHAT') await renderMessageBubble(msg); }
+    }
+
+    async function handleIncomingMessage(message) {
+        if (message.type === 'TYPING') {
+            if (message.sender !== currentUsername) showTypingIndicator(message.sender);
+            return;
+        }
+        if (message.type === 'JOIN' || message.type === 'LEAVE') {
+            updateRoster(message.sender, message.type);
+            renderSystemAlert(message);
+            return;
+        }
+        if (message.type === 'CHAT') {
+            updateRoster(message.sender, 'JOIN');
+            await renderMessageBubble(message);
+            if (message.sender !== currentUsername) document.getElementById('typing-indicator').style.display = 'none';
+        }
+    }
+
+    async function renderMessageBubble(message) {
+        const profile = await fetchProfile(message.sender);
+        const container = document.getElementById('chat-container');
+        const isMe = message.sender === currentUsername;
+        const time = message.timestamp ? new Date(message.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Just now';
+
+        const row = document.createElement('div');
+        row.className = `msg-row ${isMe ? 'me' : 'other'}`;
+        const bubbleColorStyle = isMe ? `background-color: ${profile.themeColor};` : '';
+
+        // Detect Cloudinary Image Links
+        let bubbleContent = message.content;
+        if (message.content.includes("res.cloudinary.com")) {
+            bubbleContent = `<img src="${message.content}" style="max-width: 250px; border-radius: 8px; cursor: pointer;" onclick="window.open(this.src, '_blank')">`;
+        }
+
+        row.innerHTML = `
+            <img src="${profile.avatarUrl}" class="avatar-img shadow-sm" style="border: 2px solid ${profile.themeColor}" alt="Avatar">
+            <div class="message-wrapper">
+                <div class="meta">${isMe ? 'You' : message.sender} • ${time}</div>
+                <div class="bubble" style="${bubbleColorStyle}">${bubbleContent}</div>
+            </div>`;
+        container.appendChild(row);
+        container.scrollTop = container.scrollHeight;
+    }
+
+    function showTypingIndicator(sender) {
+        const indicator = document.getElementById('typing-indicator');
+        indicator.textContent = `${sender} is typing...`;
+        indicator.style.display = 'block';
+        clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => { indicator.style.display = 'none'; }, 4000);
+    }
+
+    function renderSystemAlert(message) {
+        const container = document.getElementById('chat-container');
+        const div = document.createElement('div');
+        div.className = "system-msg";
+        div.textContent = message.textOverride || `${message.sender} ${message.type === 'JOIN' ? 'joined' : 'left'} the chat`;
+        container.appendChild(div);
+        container.scrollTop = container.scrollHeight;
+    }
+
+    function sendMessage() {
+        const input = document.getElementById('messageInput');
+        const content = input.value.trim();
+        if (content && stompClient) {
+            stompClient.send("/app/sendMessage", {}, JSON.stringify({ sender: currentUsername, content: content, type: 'CHAT' }));
+            input.value = '';
+            isTyping = false; clearTimeout(typingThrottleTimer);
+        }
+    }
+
+    document.getElementById('messageInput').addEventListener('input', () => {
+        if (!stompClient || !currentUsername) return;
+        if (!isTyping) {
+            isTyping = true;
+            stompClient.send("/app/sendMessage", {}, JSON.stringify({ sender: currentUsername, type: 'TYPING' }));
+            typingThrottleTimer = setTimeout(() => { isTyping = false; }, 4000);
+        }
+    });
+
+    document.getElementById('messageInput').addEventListener('keypress', e => { if (e.key === 'Enter') sendMessage(); });
+</script>
+</body>
+</html>
