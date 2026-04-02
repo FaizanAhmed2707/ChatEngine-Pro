@@ -7,7 +7,10 @@ import java.util.List;
 
 @Repository
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> {
-    // Spring Boot writes the SQL for this automatically based on the method name!
-    // It grabs the most recent 50 messages to load when a user opens the app.
-    List<ChatMessage> findTop50ByOrderByTimestampAsc();
+
+    // Gets the absolute latest 50 messages (for initial load)
+    List<ChatMessage> findTop50ByOrderByIdDesc();
+
+    // Gets the 50 messages immediately BEFORE the given ID (for scrolling up)
+    List<ChatMessage> findTop50ByIdLessThanOrderByIdDesc(Long id);
 }

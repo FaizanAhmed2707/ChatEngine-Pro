@@ -7,7 +7,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.SendTo;
 import org.springframework.web.bind.annotation.GetMapping;
+import java.util.Collections;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
@@ -28,9 +30,20 @@ public class ChatController {
         return message;
     }
 
-    // 2. The REST route (Fetches chat history on load)
     @GetMapping("/api/messages/history")
-    public List<ChatMessage> getChatHistory() {
-        return messageRepository.findTop50ByOrderByTimestampAsc();
+    public List<ChatMessage> getChatHistory(@RequestParam(required = false) Long beforeId) {
+        List<ChatMessage> messages;
+
+        if (beforeId == null) {
+            // Initial load: get the latest 50
+            messages = messageRepository.findTop50ByOrderByIdDesc();
+        } else {
+            // Scroll up load: get the 50 before the cursor
+            messages = messageRepository.findTop50ByIdLessThanOrderByIdDesc(beforeId);
+        }
+
+        // Reverse the list so chronological order is maintained (oldest at top, newest at bottom)
+        Collections.reverse(messages);
+        return messages;
     }
 }
