@@ -19,7 +19,10 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        registry.enableSimpleBroker("/topic");
+        // This tells Spring where to route messages coming FROM React
         registry.setApplicationDestinationPrefixes("/app");
+
+        // THIS IS THE CRITICAL LINE: It tells Spring where it is allowed to push messages TO React
+        registry.enableSimpleBroker("/topic");
     }
 }
