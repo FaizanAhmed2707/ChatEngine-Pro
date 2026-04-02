@@ -9,15 +9,20 @@ import org.springframework.security.web.SecurityFilterChain;
 public class SecurityConfig {
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-                .csrf(csrf -> csrf.disable()) // Keep this disabled for your API
+                // 1. Disable CSRF so SockJS can establish the connection
+                .csrf(csrf -> csrf.disable())
+
+                // 2. Disable Frame Options so SockJS iframes don't get blocked
+                .headers(headers -> headers.frameOptions(frame -> frame.disable()))
+
+                // ... your existing authorizeHttpRequests and oauth2Login rules go here ...
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/", "/login", "/oauth2/**", "/api/users/**").permitAll()
+                        .requestMatchers("/", "/login", "/oauth2/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .oauth2Login(oauth2 -> oauth2
-                        // THE NEW REDIRECT: Send the user back to React after Google Login
                         .defaultSuccessUrl("http://localhost:5173", true)
                 );
 
