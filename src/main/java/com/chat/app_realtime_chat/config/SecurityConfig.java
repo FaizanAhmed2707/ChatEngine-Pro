@@ -9,18 +9,16 @@ import org.springframework.security.web.SecurityFilterChain;
 public class SecurityConfig {
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                .csrf(csrf -> csrf.disable()) // Disabled for WebSocket compatibility
+                .csrf(csrf -> csrf.disable()) // Keep this disabled for your API
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/", "/login", "/css/**", "/js/**").permitAll()
-                        .anyRequest().authenticated() // All other pages (like /chat) require login
+                        .requestMatchers("/", "/login", "/oauth2/**", "/api/users/**").permitAll()
+                        .anyRequest().authenticated()
                 )
                 .oauth2Login(oauth2 -> oauth2
-                        .defaultSuccessUrl("/chat", true) // Send them to the chat after successful Google login
-                )
-                .logout(logout -> logout
-                        .logoutSuccessUrl("/")
+                        // THE NEW REDIRECT: Send the user back to React after Google Login
+                        .defaultSuccessUrl("http://localhost:5173", true)
                 );
 
         return http.build();
