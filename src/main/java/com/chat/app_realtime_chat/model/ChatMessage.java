@@ -1,36 +1,39 @@
 package com.chat.app_realtime_chat.model;
 
 import jakarta.persistence.*;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "chat_messages")
-@Data
-@NoArgsConstructor
+@Table(name = "messages")
 public class ChatMessage {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    private String sender;
+    private String content;
+
     @Enumerated(EnumType.STRING)
     private MessageType type;
 
-    private String content;
-    private String sender;
     private LocalDateTime timestamp;
 
+    // This automatically sets the exact time the message was saved to the database
     @PrePersist
     protected void onCreate() {
-        this.timestamp = LocalDateTime.now();
+        timestamp = LocalDateTime.now();
     }
 
-    public enum MessageType {
-        CHAT,
-        JOIN,
-        LEAVE,
-        TYPING // Added to support the typing indicator without crashing the DB
-    }
+    // --- GETTERS & SETTERS ---
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getSender() { return sender; }
+    public void setSender(String sender) { this.sender = sender; }
+    public String getContent() { return content; }
+    public void setContent(String content) { this.content = content; }
+    public MessageType getType() { return type; }
+    public void setType(MessageType type) { this.type = type; }
+    public LocalDateTime getTimestamp() { return timestamp; }
+    public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
 }
