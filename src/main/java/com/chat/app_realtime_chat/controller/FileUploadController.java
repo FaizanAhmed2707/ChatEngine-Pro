@@ -1,35 +1,46 @@
 package com.chat.app_realtime_chat.controller;
 
-import com.cloudinary.Cloudinary;
-import com.cloudinary.utils.ObjectUtils;
-import lombok.RequiredArgsConstructor;
+import com.chat.app_realtime_chat.model.ChatMessage;
+import com.chat.app_realtime_chat.model.MessageType;
+import com.chat.app_realtime_chat.repository.ChatMessageRepository;
+import com.chat.app_realtime_chat.service.CloudinaryService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.simp.SimpMessageSendingOperations;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.util.Map;
 
 @RestController
-@RequestMapping("/api/upload")
-@RequiredArgsConstructor
+@RequestMapping("/api/files")
 public class FileUploadController {
 
-    private final Cloudinary cloudinary;
+    @Autowired
+    private CloudinaryService cloudinaryService;
 
-    @PostMapping
-    public ResponseEntity<Map<String, String>> uploadFile(@RequestParam("file") MultipartFile file) {
+    @Autowired
+    private ChatMessageRepository messageRepository;
+
+    @Autowired
+    private SimpMessageSendingOperations messagingTemplate;
+
+    @PostMapping("/upload")
+    public ResponseEntity<?> uploadFile(@RequestParam("file") MultipartFile file, @RequestParam("sender") String sender) {
         try {
-            // Ship the raw file bytes securely to Cloudinary
-            Map uploadResult = cloudinary.uploader().upload(file.getBytes(), ObjectUtils.emptyMap());
+            String fileUrl = cloudinaryService.uploadFile(file);
 
-            // Extract the generated public URL from Cloudinary's response
-            String imageUrl = (String) uploadResult.get("secure_url");
+            ChatMessage chatMessage = new ChatMessage();
+            chatMessage.setSender(sender);
+            chatMessage.setContent(fileUrl); // We store the Cloudinary URL in the content field
+            chatMessage.setType(MessageType.FILE);
 
-            // Return the URL to the frontend so it can be sent in the chat
-            return ResponseEntity.ok(Map.of("url", imageUrl));
+            messageRepository.save(chatMessage);
+            messagingTemplate.convertAndSend("/topic/messages", chatMessage);
+
+            return ResponseEntity.ok(chatMessage);
         } catch (IOException e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", "Image upload failed"));
+            return ResponseEntity.internalServerError().body("Upload failed");
         }
     }
 }
