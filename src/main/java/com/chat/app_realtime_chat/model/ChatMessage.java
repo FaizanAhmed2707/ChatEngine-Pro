@@ -15,6 +15,7 @@ public class ChatMessage {
     private String content;
 
     @Enumerated(EnumType.STRING)
+    @Column(columnDefinition = "VARCHAR(255)") // ADD THIS LINE
     private MessageType type;
 
     private LocalDateTime timestamp;

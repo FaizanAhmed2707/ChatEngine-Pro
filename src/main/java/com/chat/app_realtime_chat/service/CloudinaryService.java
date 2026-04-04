@@ -27,7 +27,7 @@ public class CloudinaryService {
     }
 
     public String uploadFile(MultipartFile file) throws IOException {
-        // "resource_type", "auto" tells Cloudinary to auto-detect if it's an image, video, or raw PDF
+        // "resource_type", "auto" allows Cloudinary to accept images, videos, and PDFs automatically
         Map uploadResult = cloudinary.uploader().upload(file.getBytes(), ObjectUtils.asMap("resource_type", "auto"));
         return uploadResult.get("secure_url").toString();
     }

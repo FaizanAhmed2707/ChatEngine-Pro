@@ -28,13 +28,16 @@ public class FileUploadController {
     @PostMapping("/upload")
     public ResponseEntity<?> uploadFile(@RequestParam("file") MultipartFile file, @RequestParam("sender") String sender) {
         try {
+            // 1. Upload to Cloudinary
             String fileUrl = cloudinaryService.uploadFile(file);
 
+            // 2. Create the message object
             ChatMessage chatMessage = new ChatMessage();
             chatMessage.setSender(sender);
-            chatMessage.setContent(fileUrl); // We store the Cloudinary URL in the content field
+            chatMessage.setContent(fileUrl); // Save the Cloudinary URL as the content
             chatMessage.setType(MessageType.FILE);
 
+            // 3. Save to PostgreSQL and Broadcast to WebSockets
             messageRepository.save(chatMessage);
             messagingTemplate.convertAndSend("/topic/messages", chatMessage);
 
